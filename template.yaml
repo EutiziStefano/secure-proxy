@@ -1,0 +1,217 @@
+apiVersion: template.openshift.io/v1
+kind: Template
+metadata:
+  name: nginx-secureproxy
+  labels:
+    app: secureproxy
+    name: secureproxy
+  annotations:
+    "openshift.io/display-name": secureproxy
+    description: |
+      An Nginx solution for an OpenShift route securization - Throttling, authentication features for openshift ingress route. This is a tech preview feature.
+    iconClass: icon-cogs
+    tags: "secureproxy, nginx"
+parameters:
+- description: The location of the Nginx image
+  name: IMAGE_NGINX
+  value: registry.access.redhat.com/rhscl/nginx-112-rhel7
+- description: External route, fqdn, for the nginx
+  name: ROTTA
+  required: true
+- description: Port of the service for that route
+  name: PORTASERVICE
+  required: true
+- description: SSL termination for the route
+  name: TLS_TERMINATION
+  required: true
+
+objects:
+- apiVersion: apps.openshift.io/v1
+  kind: DeploymentConfig
+  metadata:
+    labels:
+      app: secureproxy
+    name: secureproxy
+  spec:
+    replicas: 1
+    revisionHistoryLimit: 10
+    selector:
+      deploymentconfig: secureproxy
+    strategy:
+      activeDeadlineSeconds: 21600
+      resources: {}
+      rollingParams:
+        intervalSeconds: 1
+        maxSurge: 25%
+        maxUnavailable: 25%
+        timeoutSeconds: 600
+        updatePeriodSeconds: 1
+      type: Rolling
+    template:
+      metadata:
+        creationTimestamp: null
+        labels:
+          app: secureproxy
+          deploymentconfig: secureproxy
+      spec:
+        containers:
+        - image: ${IMAGE_NGINX}
+          imagePullPolicy: IfNotPresent
+          name: secureproxy
+          ports:
+          - containerPort: 8080
+            protocol: TCP
+          - containerPort: 8443
+            protocol: TCP
+          resources: {}
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /opt/app-root/etc/nginx.d/
+            name: nginxconf
+            readOnly: true
+          - mountPath: /etc/nginx/certs
+            name: certificatissl
+            readOnly: true
+          - mountPath: /etc/nginx/ssl
+            name: clientcrt
+            readOnly: true
+        dnsPolicy: ClusterFirst
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        terminationGracePeriodSeconds: 30
+        volumes:
+        - configMap:
+            defaultMode: 420
+            name: secureproxy.configmap
+          name: nginxconf
+        - name: certificatissl
+          secret:
+            defaultMode: 420
+            secretName: secureproxy.certificati.ssl.secret
+        - name: clientcrt
+          secret:
+            defaultMode: 420
+            secretName: secureproxy.client.crt.secret
+    test: false
+    triggers:
+    - type: ConfigChange
+
+- apiVersion: v1
+  data:
+    nginx.conf: |
+      server_names_hash_bucket_size 128;
+      log_format mutual '$remote_addr $ssl_cipher CLIENT_VERIFICATION=$ssl_client_verify FINGERPRINT=$ssl_client_fingerprint - $remote_user [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent" "$http_x_forwarded_for"';
+      server {
+        listen 8080;
+        underscores_in_headers on;
+        server_name ${ROTTA}
+
+        #   access_log  /var/opt/rh/rh-nginx112/log/nginx/access.log  mutual;
+
+        # Uncomment if the route is exposed in Passthrough and nginx must terminate ssl connection
+        #listen 8443 ssl;
+        #ssl_certificate /etc/nginx/certs/certificato.crt;
+        #ssl_certificate_key /etc/nginx/certs/certificato.key;
+        #ssl_protocols TLSv1.2 TLSv1.1;
+        #ssl_prefer_server_ciphers on;
+        #ssl_session_cache   shared:SSL:10m;
+        #ssl_session_timeout 10m;
+       
+        # Uncomment for setting throttling and set request per second limit
+        #limit_req_zone $server_name zone=limite:10m rate=${REQUESTxSEC_LIMIT}r/s;
+
+        # Uncomment for mtls mutual authentication after creating the relative client secret
+        #ssl_verify_client on;
+        #ssl_client_certificate /etc/nginx/ssl/clients.crt;    
+        #ssl_verify_depth 3;
+        
+        
+        # Test location for nginx connectivity
+        location / {
+          return 200 'Nginx is up and running';
+          add_header Content-Type text/plain;
+        }
+
+        # Insert desired Locations, 2 examples is following, one sample and one with throttling
+        # location /api/v1/conti/info/disponibilita {
+        #   proxy_pass_request_headers on;
+        #   proxy_pass http://APPLICATION_SERVICE_NAME.svc.cluster.local:80;
+        # }
+        # location / {
+        #   proxy_pass_request_headers on;
+        #   limit_req zone=limite burst=BURST;
+        #   limit_req_status 408;
+        #   proxy_pass http://APPLICATION_SERVICE_NAME.svc.cluster.local:80;
+        # }
+      }
+      
+  kind: ConfigMap
+  metadata:
+    labels:
+      app: secureproxy
+    name: secureproxy.configmap 
+
+- apiVersion: v1
+  data:
+    clients.crt: aW5zZXJpcmUgaWwgY2VydGlmaWNhdG8gY2xpZW50
+  kind: Secret
+  metadata:
+    labels:
+      app: secureproxy
+    name: secureproxy.client.crt.secret
+  type: Opaque
+
+- apiVersion: v1
+  data:
+    certificato.crt: SW5zZXJpcmUgbGEgY2hpYXZlIHB1YmJsaWNhIGRlbCBjZXJ0aWZpY2F0bw==
+    certificato.key: SW5zZXJpcmUgbGEgY2hpYXZlIHByaXZhdGEgZGVsIGNlcnRpZmljYXRv
+  kind: Secret
+  metadata:
+    labels:
+      app: secureproxy
+    creationTimestamp: null
+    name: secureproxy.certificati.ssl.secret
+  type: Opaque  
+
+- apiVersion: v1
+  kind: Service
+  metadata:
+    labels:
+      app: secureproxy
+    name: secureproxy-service
+  spec:
+    ports:
+      - name: 8080-tcp
+        port: 8080
+        protocol: TCP
+        targetPort: 8080
+      - name: 8443-tcp
+        port: 8443
+        protocol: TCP
+        targetPort: 8443
+    selector:
+      deploymentconfig: secureproxy
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+
+- apiVersion: route.openshift.io/v1
+  kind: Route
+  metadata:
+    labels:
+      app: secureproxy
+    name: secureproxy-route
+  spec:
+    host: ${ROTTA}
+    port:
+      targetPort: ${PORTASERVICE}-tcp
+    tls:
+      termination: ${TLS_TERMINATION}
+    to:
+      kind: Service
+      name: secureproxy-service
+      weight: 100
+    wildcardPolicy: None

@@ -1,0 +1,146 @@
+apiVersion: template.openshift.io/v1
+kind: Template
+metadata:
+  name: nginx-secureproxy
+  labels:
+    app: secureproxy
+    name: secureproxy
+  annotations:
+    "openshift.io/display-name": secureproxy
+    description: |
+      An Nginx solution for an OpenShift route securization - Throttling, authentication features for openshift ingress route. This is a tech preview feature.
+    iconClass: icon-cogs
+    tags: "secureproxy, nginx"
+parameters:
+- description: The location of the Nginx image
+  name: IMAGE_NGINX
+  value: sdpsvalmbf.rete.testposte:5000/globals/nginx-112-rhel7
+- description: Porta del service da utilizzare
+  name: PORTASERVICE
+  required: true
+
+
+objects:
+- apiVersion: apps.openshift.io/v1
+  kind: DeploymentConfig
+  metadata:
+    labels:
+      app: secureproxy
+    name: secureproxy
+  spec:
+    replicas: 1
+    revisionHistoryLimit: 10
+    selector:
+      deploymentconfig: secureproxy
+    strategy:
+      activeDeadlineSeconds: 21600
+      resources: {}
+      rollingParams:
+        intervalSeconds: 1
+        maxSurge: 25%
+        maxUnavailable: 25%
+        timeoutSeconds: 600
+        updatePeriodSeconds: 1
+      type: Rolling
+    template:
+      metadata:
+        creationTimestamp: null
+        labels:
+          app: secureproxy
+          deploymentconfig: secureproxy
+      spec:
+        containers:
+        - image: ${IMAGE_NGINX}
+          imagePullPolicy: IfNotPresent
+          name: secureproxy
+          ports:
+          - containerPort: 8888
+            protocol: TCP
+          resources: {}
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /opt/app-root/etc/nginx.d/
+            name: nginxconf
+            readOnly: true
+          - mountPath: /etc/nginx/certs
+            name: certificatissl
+            readOnly: true
+        dnsPolicy: ClusterFirst
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        terminationGracePeriodSeconds: 30
+        volumes:
+        - configMap:
+            defaultMode: 420
+            name: secureproxy.configmap
+          name: nginxconf
+        - name: certificatissl
+          secret:
+            defaultMode: 420
+            secretName: secureproxy.certificati.client.ssl.secret
+    test: false
+    triggers:
+    - type: ConfigChange
+
+- apiVersion: v1
+  data:
+    nginx.conf: |
+      server_names_hash_bucket_size 128;      
+      server {
+        listen 8888;
+        underscores_in_headers on;
+
+        # Location di prova per testare nginx
+        location / {
+          return 200 'Nginx is up and running';
+          add_header Content-Type text/plain;
+        }
+        location /MenigaServices {
+          proxy_pass                https://pfmcol.rete.poste;
+          proxy_ssl_certificate     /etc/nginx/certs/certificato.crt;
+          proxy_ssl_certificate_key /etc/nginx/certs/certificato.key;
+          proxy_ssl_protocols       TLSv1.2 TLSv1.3;
+          proxy_ssl_ciphers         HIGH:!aNULL:!MD5;
+        }
+
+      }
+      
+  kind: ConfigMap
+  metadata:
+    labels:
+      app: secureproxy
+    name: secureproxy.configmap 
+
+- apiVersion: v1
+  data:
+    certificato.crt: SW5zZXJpcmUgbGEgY2hpYXZlIHB1YmJsaWNhIGRlbCBjZXJ0aWZpY2F0bw==
+    certificato.key: SW5zZXJpcmUgbGEgY2hpYXZlIHByaXZhdGEgZGVsIGNlcnRpZmljYXRv
+  kind: Secret
+  metadata:
+    labels:
+      app: secureproxy
+    creationTimestamp: null
+    name: secureproxy.certificati.client.ssl.secret
+  type: Opaque  
+
+- apiVersion: v1
+  kind: Service
+  metadata:
+    labels:
+      app: secureproxy
+    name: secureproxy-service
+  spec:
+    ports:
+      - name: 8080-tcp
+        port: 8080
+        protocol: TCP
+        targetPort: 8888
+    selector:
+      deploymentconfig: secureproxy
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+

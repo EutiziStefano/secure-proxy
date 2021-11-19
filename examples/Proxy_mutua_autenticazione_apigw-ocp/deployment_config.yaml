@@ -1,0 +1,91 @@
+apiVersion: apps.openshift.io/v1
+kind: DeploymentConfig
+metadata:
+  annotations:
+    openshift.io/generated-by: OpenShiftWebConsole
+  creationTimestamp: null
+  generation: 1
+  labels:
+    app: reverseproxy
+  name: reverseproxy
+  selfLink: /apis/apps.openshift.io/v1/namespaces/apigw-proxy-mutua/deploymentconfigs/reverseproxy
+spec:
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    deploymentconfig: reverseproxy
+  strategy:
+    activeDeadlineSeconds: 21600
+    resources: {}
+    rollingParams:
+      intervalSeconds: 1
+      maxSurge: 25%
+      maxUnavailable: 25%
+      timeoutSeconds: 600
+      updatePeriodSeconds: 1
+    type: Rolling
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: reverseproxy
+        deploymentconfig: reverseproxy
+    spec:
+      containers:
+      - image: docker-registry.default.svc:5000/apigw-proxy-mutua/reverseproxy@sha256:7d9d38fbeae60729c817789cc29b40ded9724f93c69588ba6762ebcd551cce03
+        imagePullPolicy: Always
+        name: reverseproxy
+        ports:
+        - containerPort: 8080
+          protocol: TCP
+        - containerPort: 8443
+          protocol: TCP
+        resources: {}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /opt/app-root/etc/nginx.d/
+          name: nginxconf
+          readOnly: true
+        - mountPath: /etc/nginx/certs
+          name: certificatissl
+          readOnly: true
+        - mountPath: /etc/nginx/ssl
+          name: apigwcrt
+          readOnly: true
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - configMap:
+          defaultMode: 420
+          name: nginx.conf
+        name: nginxconf
+      - name: certificatissl
+        secret:
+          defaultMode: 420
+          secretName: certificatissl
+      - name: apigwcrt
+        secret:
+          defaultMode: 420
+          secretName: apigw.crt
+  test: false
+  triggers:
+  - imageChangeParams:
+      containerNames:
+      - reverseproxy
+      from:
+        kind: ImageStreamTag
+        name: reverseproxy:latest
+        namespace: apigw-proxy-mutua
+    type: ImageChange
+  - type: ConfigChange
+status:
+  availableReplicas: 0
+  latestVersion: 0
+  observedGeneration: 0
+  replicas: 0
+  unavailableReplicas: 0
+  updatedReplicas: 0
