@@ -43,6 +43,8 @@ In this way for both cases the application will remain unaware of mtls and devel
 
 In the follow image you have the functioning schema for these scenarios:
 
+
+
 ![classic](/readme/mutual.jpg)
 
 
@@ -50,13 +52,22 @@ In the follow image you have the functioning schema for these scenarios:
 Think at a microservice api that is called by different external systems.
 
 Normally the schema would be as follow:
+
+
+
 ![classic](/readme/classic.jpg)
+
+
 
 In this scenario we can't identify in any way the caller system, and so we can't apply any specific rule to a specific client, collect statistics of utilization, and so on.
 
 Introducing the secureproxy, with an ad hoc nginx configuration whe can create a virtualhost for each client and this allow us to identify them and use different acls for each one, make statistics and throttling on client base.
 This is the functioning schema:
+
+
 ![secure](/readme/secure.jpg)
+
+
 
 We will create a specific Route object for each client, all the routes are directed on the nginx service.
 The service routes the incoming connection to the nginx pods that are active, nginx with SNI capability identifies the correct virtualhost and applies the configurations that we have disposed.
